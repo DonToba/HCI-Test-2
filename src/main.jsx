@@ -51,7 +51,7 @@ function App(){
   const [data,setData]=useState({}); const [loading,setLoading]=useState(true); const [error,setError]=useState("");
   const [appMode,setAppMode]=useState("locator");
   const [query,setQuery]=useState(""); const [searchMode,setSearchMode]=useState("id");
-  const [selected,setSelected]=useState(null); const [location,setLocation]=useState(null);
+  const [selected,setSelected]=useState(null); const [selectedHospital,setSelectedHospital]=useState(null); const [location,setLocation]=useState(null); const [focusPoint,setFocusPoint]=useState(null);
   const [locationMode,setLocationMode]=useState("database"); const [radius,setRadius]=useState(250);
   const [plan,setPlan]=useState("All Plans"); const [active,setActive]=useState(Object.fromEntries(FACILITIES.map(x=>[x.key,true])));
   const [emergency,setEmergency]=useState(false); const [detail,setDetail]=useState(null);
@@ -72,8 +72,9 @@ function App(){
   const plans=useMemo(()=>["All Plans",...Array.from(new Set(FACILITIES.flatMap(m=>(data[m.key]||[]).map(x=>x.plan).filter(Boolean)))).sort()],[data]);
   const searchResults=useMemo(()=>{
     const q=query.trim().toLowerCase(); if(!q)return[];
-    return (data.enrollees||[]).filter(e=>searchMode==="id"?e.id.toLowerCase().includes(q):searchMode==="name"?e.name.toLowerCase().includes(q):[e.id,e.name,e.address].some(v=>v.toLowerCase().includes(q))).slice(0,7);
-  },[query,searchMode,data.enrollees]);
+    if(searchMode==="hospital") return (data.hospitals||[]).filter(f=>[f.name,f.address,f.state,f.lga,f.service].some(v=>(v||"").toLowerCase().includes(q))).slice(0,7);
+    return (data.enrollees||[]).filter(e=>searchMode==="id"?e.id.toLowerCase().includes(q):[e.id,e.name,e.address].some(v=>(v||"").toLowerCase().includes(q))).slice(0,7);
+  },[query,searchMode,data.enrollees,data.hospitals]);
 
   const allFacilities=useMemo(()=>FACILITIES.flatMap(m=>data[m.key]||[]),[data]);
   const nearby=useMemo(()=>{
@@ -110,13 +111,32 @@ function App(){
   const nearest=showAll?nearby:nearby.slice(0,7);
   const centre=location||{lat:6.5244,lng:3.3792};
 
-  function chooseEnrollee(e){setSelected(e);setQuery(e.id);setLocation({lat:e.lat,lng:e.lng});setLocationMode("database");setEmergency(false);setDetail(null);setShowAll(false);setCompare([]);setNlActive(false);setAppMode("locator")}
+  function chooseEnrollee(e){setSelected(e);setSelectedHospital(null);setQuery(e.id);setLocation({lat:e.lat,lng:e.lng});setFocusPoint({lat:e.lat,lng:e.lng});setLocationMode("database");setEmergency(false);setDetail(null);setShowAll(false);setCompare([]);setNlActive(false);setAppMode("locator")}
+  function chooseHospital(f){
+    // Hospital search is an independent origin search: the selected hospital
+    // becomes the centre of the 250 m search and ALL healthcare facility types
+    // remain visible around it.
+    setSelected(null);
+    setSelectedHospital(f);
+    setQuery(f.name);
+    setLocation({lat:f.lat,lng:f.lng});
+    setFocusPoint({lat:f.lat,lng:f.lng});
+    setLocationMode("hospital");
+    setRadius(250);
+    setEmergency(false);
+    setActive(Object.fromEntries(FACILITIES.map(m=>[m.key,true])));
+    setDetail(null);
+    setShowAll(false);
+    setCompare([]);
+    setNlActive(false);
+    setAppMode("locator");
+  }
   function useGPS(){
     if(!navigator.geolocation){setGeoError("Geolocation is not supported.");return}
     setGeoError("");
-    navigator.geolocation.getCurrentPosition(p=>{setLocation({lat:p.coords.latitude,lng:p.coords.longitude});setLocationMode("current");setDetail(null);setShowAll(false)},()=>setGeoError("Location access was not granted. Check browser permissions."));
+    navigator.geolocation.getCurrentPosition(p=>{setLocation({lat:p.coords.latitude,lng:p.coords.longitude});setFocusPoint({lat:p.coords.latitude,lng:p.coords.longitude});setLocationMode("current");setDetail(null);setShowAll(false)},()=>setGeoError("Location access was not granted. Check browser permissions."));
   }
-  function chooseMap(p){setLocation({lat:p.lat,lng:p.lng});setLocationMode("map");setDetail(null)}
+  function chooseMap(p){setLocation({lat:p.lat,lng:p.lng});setFocusPoint({lat:p.lat,lng:p.lng});setLocationMode("map");setDetail(null)}
   function toggleCompare(f){setCompare(s=>s.some(x=>x.id===f.id)?s.filter(x=>x.id!==f.id):s.length<3?[...s,f]:s)}
   function directions(f){window.open(`https://www.google.com/maps/dir/?api=1&destination=${f.lat},${f.lng}`,"_blank","noopener,noreferrer")}
   function parseNatural(){
@@ -146,17 +166,18 @@ function App(){
     {appMode==="locator"?<div className="workspace">
       <aside className="left-panel">
         <section className="panel search-panel">
-          <div className="kicker">ENROLLEE SEARCH</div>
-          <div className="search-tabs"><button className={searchMode==="id"?"active":""} onClick={()=>{setSearchMode("id");setQuery("")}}>Search by ID</button><button className={searchMode==="name"?"active":""} onClick={()=>{setSearchMode("name");setQuery("")}}>Search by Name</button></div>
-          <div className="searchbox"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder={searchMode==="id"?"Enter enrollee ID":"Enter enrollee name"}/>{query&&<button onClick={()=>setQuery("")}><X size={14}/></button>}</div>
-          {searchResults.length>0&&<div className="results">{searchResults.map(e=><button key={e.id} onClick={()=>chooseEnrollee(e)}><span className="avatar">{initials(e.name)}</span><span><b>{e.id}</b><small>{e.name} · {e.address}</small></span><ChevronRight size={14}/></button>)}</div>}
-          <div className="quick"><span>QUICK SEARCH</span>{(data.enrollees||[]).slice(0,3).map(e=><button key={e.id} onClick={()=>chooseEnrollee(e)}>{e.id}</button>)}</div>
+          <div className="kicker">PROVIDER & ENROLLEE SEARCH</div>
+          <div className="search-tabs"><button className={searchMode==="id"?"active":""} onClick={()=>{setSearchMode("id");setQuery("")}}>Search by ID</button><button className={searchMode==="name"?"active":""} onClick={()=>{setSearchMode("name");setQuery("")}}>Search by Name</button><button className={searchMode==="hospital"?"active":""} onClick={()=>{setSearchMode("hospital");setQuery("");setSelectedHospital(null)}}>Search by Hospital</button></div>
+          <div className="searchbox"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder={searchMode==="hospital"?"Search hospital name or location":searchMode==="id"?"Enter enrollee ID":"Enter enrollee name"}/>{query&&<button onClick={()=>setQuery("")}><X size={14}/></button>}</div>
+          {searchResults.length>0&&<div className="results">{searchResults.map(item=>searchMode==="hospital"?<button key={item.id} onClick={()=>chooseHospital(item)}><span className="avatar"><Hospital size={15}/></span><span><b>{item.name}</b><small>Hospital · {item.address}</small></span><ChevronRight size={14}/></button>:<button key={item.id} onClick={()=>chooseEnrollee(item)}><span className="avatar">{initials(item.name)}</span><span><b>{item.id}</b><small>{item.name} · {item.address}</small></span><ChevronRight size={14}/></button>)}</div>}
+          <div className="quick"><span>{searchMode==="hospital"?"QUICK HOSPITAL SEARCH":"QUICK SEARCH"}</span>{searchMode==="hospital"?(data.hospitals||[]).slice(0,3).map(f=><button key={f.id} onClick={()=>chooseHospital(f)}>{f.name}</button>):(data.enrollees||[]).slice(0,3).map(e=><button key={e.id} onClick={()=>chooseEnrollee(e)}>{e.id}</button>)}</div>
         </section>
 
         <section className="panel enrollee">
-          <div className="kicker">SELECTED ENROLLEE</div>
+          {selectedHospital?<><div className="kicker">SELECTED HOSPITAL</div><div className="person"><span className="hospital-avatar"><Hospital size={17}/></span><div><b>HOSPITAL SEARCH</b><h3>{selectedHospital.name}</h3></div><span className="active-pill">Origin</span></div>
+          <div className="address"><MapPin size={14}/>{selectedHospital.address}</div><div className="plan-line"><span>Search area</span><b>250 m radius</b></div></>:<><div className="kicker">SELECTED ENROLLEE</div>
           {selected&&<><div className="person"><span>{initials(selected.name)}</span><div><b>{selected.id}</b><h3>{selected.name}</h3></div><span className="active-pill">Active</span></div>
-          <div className="address"><MapPin size={14}/>{selected.address}</div><div className="plan-line"><span>HMO Plan</span><b>{selected.plan||"Not specified"}</b></div></>}
+          <div className="address"><MapPin size={14}/>{selected.address}</div><div className="plan-line"><span>HMO Plan</span><b>{selected.plan||"Not specified"}</b></div></>}</>}
         </section>
 
         <section className="panel">
@@ -186,17 +207,17 @@ function App(){
       </aside>
 
       <main className="map-area">
-        <div className="map-topbar"><div className="map-context"><span className="context-dot"/><span>{locationMode==="database"?`Registered address · ${selected?.address||"—"}`:locationMode==="current"?"Current GPS location":"Map-selected location"}</span></div><div className="map-actions"><button onClick={()=>setCoverageMode(v=>!v)} className={coverageMode?"selected":""}><Layers3 size={14}/>{coverageMode?"Coverage on":"Coverage"}</button><button onClick={()=>setShowAll(true)}><Filter size={14}/> Results <b>{nearby.length}</b></button></div></div>
+        <div className="map-topbar"><div className="map-context"><span className="context-dot"/><span>{locationMode==="database"?`Registered address · ${selected?.address||"—"}`:locationMode==="hospital"?`Hospital origin · ${selectedHospital?.name||"—"}`:locationMode==="current"?"Current GPS location":"Map-selected location"}</span></div><div className="map-actions"><button onClick={()=>setCoverageMode(v=>!v)} className={coverageMode?"selected":""}><Layers3 size={14}/>{coverageMode?"Coverage on":"Coverage"}</button><button onClick={()=>setShowAll(true)}><Filter size={14}/> Results <b>{nearby.length}</b></button></div></div>
         {recommended&&<div className="recommend-card"><div className="recommend-icon"><Sparkles size={16}/></div><div className="recommend-main"><div className="rec-label">RECOMMENDED PROVIDER <span>{recommended.score}% MATCH</span></div><b>{recommended.name}</b><small>{metaByKey[recommended.category].label} · {fmtDist(recommended.distance)} · ~{estDrive(recommended.distance)} min drive</small></div><div className="rec-tags"><span>✓ {(!selected?.plan||!recommended.plan||recommended.plan===selected.plan)?"In network":"Plan check"}</span><span>✓ {emergency?"Emergency":"Suitable"}</span></div><button onClick={()=>setDetail(recommended)}>View <ChevronRight size={14}/></button></div>}
         <MapContainer center={[centre.lat,centre.lng]} zoom={15.5} className="map" zoomControl={false}>
           <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
-          <MapRecenter position={location} zoom={locationMode==="current"?14.8:15.5}/>
+          <MapRecenter position={focusPoint||location} zoom={locationMode==="current"?14.8:15.5}/>
           <MapClick onClick={chooseMap} enabled={locationMode==="map"}/>
-          {location&&<><Circle center={[location.lat,location.lng]} radius={emergency?5000:radius} pathOptions={{color:emergency?"#D64E52":"#1769D2",fillColor:emergency?"#D64E52":"#1769D2",fillOpacity:.10,weight:2,dashArray:"6 5"}}/><Marker position={[location.lat,location.lng]} icon={makeIcon(locationMode==="current"?"current":"origin",true)}><Popup><div className="popup"><b>{locationMode==="database"?selected?.name:locationMode==="current"?"Current location":"Map-selected location"}</b><span>{locationMode==="database"?selected?.address:"Search origin"}</span><strong>{emergency?"Emergency search · 5 km":`${radius} m provider search`}</strong></div></Popup></Marker></>}
+          {location&&<><Circle center={[location.lat,location.lng]} radius={emergency?5000:radius} pathOptions={{color:emergency?"#D64E52":"#1769D2",fillColor:emergency?"#D64E52":"#1769D2",fillOpacity:.10,weight:2,dashArray:"6 5"}}/><Marker position={[location.lat,location.lng]} icon={makeIcon(locationMode==="current"?"current":"origin",true)}><Popup><div className="popup"><b>{locationMode==="database"?selected?.name:locationMode==="hospital"?selectedHospital?.name:locationMode==="current"?"Current location":"Map-selected location"}</b><span>{locationMode==="database"?selected?.address:locationMode==="hospital"?selectedHospital?.address:"Search origin"}</span><strong>{emergency?"Emergency search · 5 km":`${radius} m provider search`}</strong></div></Popup></Marker></>}
           {coverageMode&&allFacilities.slice(0,250).map(f=><Circle key={`cov-${f.id}`} center={[f.lat,f.lng]} radius={180} pathOptions={{color:metaByKey[f.category].color,fillColor:metaByKey[f.category].color,fillOpacity:.055,weight:0.5}}/>)}
           {nearby.slice(0,showAll?180:80).map(f=><Marker key={f.id} position={[f.lat,f.lng]} icon={makeIcon(f.category,detail?.id===f.id)} eventHandlers={{click:()=>setDetail(f)}}><Popup><div className="popup"><b>{f.name}</b><span className="cat">{metaByKey[f.category].label} · {fmtDist(f.distance)}</span><span>{f.address}</span><strong>{(!selected?.plan||!f.plan||f.plan===selected.plan)?"✓ In-network / eligible":"Plan verification required"}</strong></div></Popup></Marker>)}
         </MapContainer>
-        <div className="map-help"><MapPin size={12}/> Click anywhere on the map after selecting <b>Click on Map</b> to simulate an enrollee's current location.</div>
+        <div className="map-help"><MapPin size={12}/> Search <b>Search by Hospital</b> to centre the map on a hospital and find all healthcare facilities within 250 m, or use an enrollee search to locate facilities around the member.</div>
         <div className="map-zoom"><button><Navigation size={15}/></button><button onClick={()=>window.location.reload()}><RefreshCw size={14}/></button></div>
 
         <section className="result-strip">
@@ -219,7 +240,7 @@ function App(){
           <div className="section-title"><span>Coverage Snapshot</span><button onClick={()=>setAppMode("network")}>Analyze <ArrowUpRight size={13}/></button></div>
           <div className="coverage-card"><div className="coverage-score"><strong>{coverageStats.pct}%</strong><span>of sample enrollees have a provider within 250 m</span></div><div className="coverage-bar"><i style={{width:`${coverageStats.pct}%`}}/></div><div className="coverage-mini"><span><b>{coverageStats.covered}</b> covered</span><span><b>{coverageStats.gaps}</b> gaps</span></div></div>
         </section>
-        <section className="dash-section active-search"><div className="section-title"><span>Active Search</span><Clock3 size={13}/></div><div className="active-grid"><span>Location</span><b>{locationMode==="database"?"Registered address":locationMode==="current"?"Current GPS":"Map selected"}</b><span>Plan</span><b>{plan}</b><span>Mode</span><b>{emergency?"Emergency · 5 km":`${radius} m radius`}</b></div></section></>}
+        <section className="dash-section active-search"><div className="section-title"><span>Active Search</span><Clock3 size={13}/></div><div className="active-grid"><span>Location</span><b>{locationMode==="database"?"Registered address":locationMode==="hospital"?"Selected hospital":locationMode==="current"?"Current GPS":"Map selected"}</b><span>Plan</span><b>{plan}</b><span>Mode</span><b>{emergency?"Emergency · 5 km":`${radius} m radius`}</b></div></section></>}
       </aside>
 
       {compare.length>0&&<div className="compare-bar"><div><GitCompareArrows size={18}/><span><b>{compare.length}</b> provider{compare.length>1?"s":""} selected</span></div><button onClick={()=>setCompare([])}>Clear</button><button className="compare-main" onClick={()=>setDetail({compareView:true,items:compare})}>Compare providers</button></div>}

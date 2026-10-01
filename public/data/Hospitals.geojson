@@ -1,6 +1,6 @@
 {
 "type": "FeatureCollection",
-"name": "Hospitals2",
+"name": "Hospitals",
 "crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
 "features": [
 { "type": "Feature", "properties": { "Name": "Otuokpoti Primary Health Centre", "Address": null, "State": "Bayelsa", "LGA": "Ogbia", "HMO Plan": null, "ServiceTyp": null, "Email Address": null, "Phone Number": null }, "geometry": { "type": "Point", "coordinates": [ 6.27256920000002, 4.83024720000003 ] } },
